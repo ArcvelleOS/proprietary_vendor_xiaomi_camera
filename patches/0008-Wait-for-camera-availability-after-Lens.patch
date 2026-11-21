@@ -1,0 +1,210 @@
+diff --git a/smali/com/android/camera/Camera.smali b/smali/com/android/camera/Camera.smali
+index 9ae9cdb..33f8bb0 100644
+--- a/smali/com/android/camera/Camera.smali
++++ b/smali/com/android/camera/Camera.smali
+@@ -11535,6 +11535,13 @@
+ .method public onActivityResult(IILandroid/content/Intent;)V
+     .locals 3
+
++    const v0, 0x134b107
++
++    if-ne p1, v0, :arcvelle_dispatch_result
++
++    invoke-static {}, Lbd/LensReturnGate;->noteReturn()V
++
++    :arcvelle_dispatch_result
+     invoke-super {p0, p1, p2, p3}, Lcom/android/camera/ActivityBase;->onActivityResult(IILandroid/content/Intent;)V
+
+     iget-object p3, p0, Lcom/android/camera/Camera;->Y9:Ljava/lang/String;
+diff --git a/smali_classes4/bd/LensReturnGate.smali b/smali_classes4/bd/LensReturnGate.smali
+new file mode 100644
+index 0000000..9a402b8
+--- /dev/null
++++ b/smali_classes4/bd/LensReturnGate.smali
+@@ -0,0 +1,96 @@
++.class public final Lbd/LensReturnGate;
++.super Landroid/hardware/camera2/CameraManager$AvailabilityCallback;
++.source "LensReturnGate.java"
++
++# Both availability callbacks and delayMs run on the camera worker handler.
++# Only the deadline is shared with the activity's main thread.
++.field private static volatile returnDeadline:J
++.field private final availableIds:Ljava/util/HashSet;
++
++.method public constructor <init>()V
++    .locals 1
++
++    invoke-direct {p0}, Landroid/hardware/camera2/CameraManager$AvailabilityCallback;-><init>()V
++
++    new-instance v0, Ljava/util/HashSet;
++
++    invoke-direct {v0}, Ljava/util/HashSet;-><init>()V
++
++    iput-object v0, p0, Lbd/LensReturnGate;->availableIds:Ljava/util/HashSet;
++
++    return-void
++.end method
++
++.method public static noteReturn()V
++    .locals 4
++
++    invoke-static {}, Landroid/os/SystemClock;->uptimeMillis()J
++
++    move-result-wide v0
++
++    # Give Lens at most 1.5 seconds to finish closing its camera session.
++    const-wide/16 v2, 0x5dc
++
++    add-long/2addr v0, v2
++
++    sput-wide v0, Lbd/LensReturnGate;->returnDeadline:J
++
++    return-void
++.end method
++
++.method public delayMs(Ljava/lang/String;)J
++    .locals 5
++
++    sget-wide v0, Lbd/LensReturnGate;->returnDeadline:J
++
++    invoke-static {}, Landroid/os/SystemClock;->uptimeMillis()J
++
++    move-result-wide v2
++
++    sub-long/2addr v0, v2
++
++    const-wide/16 v2, 0x0
++
++    cmp-long v4, v0, v2
++
++    if-lez v4, :ready
++
++    iget-object v4, p0, Lbd/LensReturnGate;->availableIds:Ljava/util/HashSet;
++
++    invoke-virtual {v4, p1}, Ljava/util/HashSet;->contains(Ljava/lang/Object;)Z
++
++    move-result v4
++
++    if-nez v4, :ready
++
++    const-wide/16 v2, 0x32
++
++    invoke-static {v0, v1, v2, v3}, Ljava/lang/Math;->min(JJ)J
++
++    move-result-wide v0
++
++    return-wide v0
++
++    :ready
++    return-wide v2
++.end method
++
++.method public onCameraAvailable(Ljava/lang/String;)V
++    .locals 1
++
++    iget-object v0, p0, Lbd/LensReturnGate;->availableIds:Ljava/util/HashSet;
++
++    invoke-virtual {v0, p1}, Ljava/util/HashSet;->add(Ljava/lang/Object;)Z
++
++    return-void
++.end method
++
++.method public onCameraUnavailable(Ljava/lang/String;)V
++    .locals 1
++
++    iget-object v0, p0, Lbd/LensReturnGate;->availableIds:Ljava/util/HashSet;
++
++    invoke-virtual {v0, p1}, Ljava/util/HashSet;->remove(Ljava/lang/Object;)Z
++
++    return-void
++.end method
+diff --git a/smali_classes4/bd/e.smali b/smali_classes4/bd/e.smali
+index 342ae0f..b49ebd1 100644
+--- a/smali_classes4/bd/e.smali
++++ b/smali_classes4/bd/e.smali
+@@ -34,6 +34,8 @@
+
+ .field public final b:Lbd/a;
+
++.field private final lensReturnGate:Lbd/LensReturnGate;
++
+
+ # direct methods
+ .method public static constructor <clinit>()V
+@@ -113,6 +115,14 @@
+
+     iput-object v2, p0, Lbd/e;->a:Landroid/os/Handler;
+
++    new-instance v3, Lbd/LensReturnGate;
++
++    invoke-direct {v3}, Lbd/LensReturnGate;-><init>()V
++
++    iput-object v3, p0, Lbd/e;->lensReturnGate:Lbd/LensReturnGate;
++
++    invoke-virtual {v1, v3, v2}, Landroid/hardware/camera2/CameraManager;->registerAvailabilityCallback(Landroid/hardware/camera2/CameraManager$AvailabilityCallback;Landroid/os/Handler;)V
++
+     .line 8
+     invoke-static {v1}, Lk6/g;->b0(Landroid/hardware/camera2/CameraManager;)Lk6/g;
+
+@@ -473,17 +483,55 @@
+ .end method
+
+ .method public static synthetic o(Landroid/os/Message;)Z
+-    .locals 1
++    .locals 5
++
++    iget-object v0, p0, Landroid/os/Message;->obj:Ljava/lang/Object;
++
++    instance-of v1, v0, Lcd/d;
++
++    if-eqz v1, :cond_0
++
++    check-cast v0, Lcd/d;
++
++    instance-of v1, v0, Lcd/f;
++
++    if-eqz v1, :arcvelle_run_callable
++
++    invoke-static {}, Lbd/e;->l()Lbd/e;
++
++    move-result-object v1
++
++    iget-object v1, v1, Lbd/e;->lensReturnGate:Lbd/LensReturnGate;
++
++    iget-object v2, v0, Lcd/d;->c:Ljava/lang/String;
++
++    invoke-virtual {v1, v2}, Lbd/LensReturnGate;->delayMs(Ljava/lang/String;)J
++
++    move-result-wide v1
++
++    const-wide/16 v3, 0x0
++
++    cmp-long v3, v1, v3
++
++    if-lez v3, :arcvelle_run_callable
++
++    # Keep the same message code so the existing close path can cancel pending opens.
++    invoke-virtual {p0}, Landroid/os/Message;->getTarget()Landroid/os/Handler;
++
++    move-result-object v3
++
++    iget v4, p0, Landroid/os/Message;->what:I
+
+-    iget-object p0, p0, Landroid/os/Message;->obj:Ljava/lang/Object;
++    invoke-virtual {v3, v4, v0}, Landroid/os/Handler;->obtainMessage(ILjava/lang/Object;)Landroid/os/Message;
+
+-    instance-of v0, p0, Lcd/d;
++    move-result-object v4
+
+-    if-eqz v0, :cond_0
++    invoke-virtual {v3, v4, v1, v2}, Landroid/os/Handler;->sendMessageDelayed(Landroid/os/Message;J)Z
+
+-    check-cast p0, Lcd/d;
++    goto :cond_0
+
+-    invoke-virtual {p0}, Lcd/d;->i()V
++    :arcvelle_run_callable
++    invoke-virtual {v0}, Lcd/d;->i()V
+
+     :cond_0
+     const/4 p0, 0x1
